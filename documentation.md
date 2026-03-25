@@ -65,7 +65,9 @@ Wird per Cron alle 5 Minuten aufgerufen. Misst einmalig alle Metriken und schrei
 
 ### reporter.py
 
-Wird alle 3 Tage um 19 Uhr aufgerufen. Liest alle Datenpunkte der letzten 3 Tage aus der Datenbank, generiert 7 Matplotlib-Charts (dark theme), bettet sie als base64-PNG in eine HTML-Mail ein und verschickt sie via Gmail SMTP.
+Wird alle 3 Tage um 19 Uhr aufgerufen. Liest alle Datenpunkte der letzten 3 Tage aus der Datenbank, generiert 7 Matplotlib-Charts (dark theme) und verschickt sie via Gmail SMTP.
+
+Das PNG-Chart wird als MIME-Inline-Attachment (`multipart/related`) eingebettet und im HTML per `<img src="cid:dashboard_chart">` referenziert. **Wichtig:** `data:`-URIs (base64 direkt im `src`-Attribut) werden von Gmail und den meisten E-Mail-Clients aus Sicherheitsgründen geblockt und dürfen nicht verwendet werden.
 
 ### database/db.py
 
@@ -108,7 +110,7 @@ Das Dashboard enthält 7 Zeitreihen-Charts im Dark Theme:
 | Entscheidung | Begründung |
 |---|---|
 | **SQLite** | Kein Datenbankserver nötig, atomare Writes, einfache Zeitreihen-Abfragen |
-| **Matplotlib mit base64-Embedding** | Keine externen Bild-URLs, funktioniert in jedem E-Mail-Client, keine Abhängigkeit von Drittservices |
+| **Matplotlib mit MIME-Inline-Attachment** | Keine externen Bild-URLs, funktioniert zuverlässig in Gmail und anderen Clients (CID-Referenz statt `data:`-URI, die von Gmail geblockt wird) |
 | **Cron statt internem Scheduler** | Script läuft einmal durch und beendet sich – stabiler auf dem Pi, kein Daemon nötig |
 | **Gmail SMTP** | Kein eigener Mailserver, zuverlässig, bereits für Wohnungsscout eingerichtet |
 | **psutil** | Plattformübergreifend, ARM-kompatibel, deckt alle relevanten Metriken ab |

@@ -4,12 +4,12 @@ und schickt es per E-Mail.
 """
 
 import io
-import base64
 import smtplib
 import os
 import sys
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from datetime import datetime
 
 import matplotlib
@@ -30,12 +30,17 @@ def _parse_ts(rows):
     return rows
 
 
-def _to_base64_png(fig):
+def _fig_to_bytes(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     buf.seek(0)
-    return base64.b64encode(buf.read()).decode()
+    return buf.read()
+
+
+def _none_to_nan(values):
+    """Ersetzt None durch float('nan') damit Matplotlib Lücken korrekt darstellt."""
+    return [v if v is not None else float("nan") for v in values]
 
 
 def _color(value, warn, crit):
@@ -49,7 +54,7 @@ def _color(value, warn, crit):
 
 
 def build_charts(rows):
-    """Erstellt ein zusammengesetztes Chart und gibt es als base64-PNG zurück."""
+    """Erstellt ein zusammengesetztes Chart und gibt es als PNG-Bytes zurück."""
     ts = [r["_dt"] for r in rows]
 
     BG = "#1a1a2e"
@@ -75,7 +80,7 @@ def build_charts(rows):
 
     # 1 – CPU-Temperatur
     ax = styled_ax(fig.add_subplot(gs[0, 0]), "CPU-Temperatur (°C)")
-    temps = [r["cpu_temp"] for r in rows]
+    temps = _none_to_nan([r["cpu_temp"] for r in rows])
     ax.plot(ts, temps, color=C[0], linewidth=1.5)
     ax.axhline(config.TEMP_WARN_C, color="#f39c12", linestyle="--", linewidth=0.8, label=f"Warn {config.TEMP_WARN_C}°C")
     ax.axhline(config.TEMP_CRIT_C, color="#e74c3c", linestyle="--", linewidth=0.8, label=f"Krit {config.TEMP_CRIT_C}°C")
@@ -85,42 +90,46 @@ def build_charts(rows):
 
     # 2 – CPU-Auslastung
     ax = styled_ax(fig.add_subplot(gs[0, 1]), "CPU-Auslastung (%)")
-    ax.plot(ts, [r["cpu_pct"] for r in rows], color=C[1], linewidth=1.5)
-    ax.fill_between(ts, [r["cpu_pct"] for r in rows], alpha=0.15, color=C[1])
+    cpu_pct = _none_to_nan([r["cpu_pct"] for r in rows])
+    ax.plot(ts, cpu_pct, color=C[1], linewidth=1.5)
+    ax.fill_between(ts, cpu_pct, alpha=0.15, color=C[1])
     ax.set_ylim(0, 100)
     ax.set_ylabel("%")
 
     # 3 – RAM-Nutzung
     ax = styled_ax(fig.add_subplot(gs[1, 0]), "RAM-Nutzung (%)")
-    ax.plot(ts, [r["ram_pct"] for r in rows], color=C[2], linewidth=1.5)
-    ax.fill_between(ts, [r["ram_pct"] for r in rows], alpha=0.15, color=C[2])
+    ram_pct = _none_to_nan([r["ram_pct"] for r in rows])
+    ax.plot(ts, ram_pct, color=C[2], linewidth=1.5)
+    ax.fill_between(ts, ram_pct, alpha=0.15, color=C[2])
     ax.set_ylim(0, 100)
     ax.set_ylabel("%")
 
     # 4 – System Load (1/5/15 Min)
     ax = styled_ax(fig.add_subplot(gs[1, 1]), "System Load")
-    ax.plot(ts, [r["load_1"] for r in rows],  color=C[3], linewidth=1.2, label="1 Min")
-    ax.plot(ts, [r["load_5"] for r in rows],  color=C[4], linewidth=1.2, label="5 Min")
-    ax.plot(ts, [r["load_15"] for r in rows], color=C[5], linewidth=1.2, label="15 Min")
+    ax.plot(ts, _none_to_nan([r["load_1"] for r in rows]),  color=C[3], linewidth=1.2, label="1 Min")
+    ax.plot(ts, _none_to_nan([r["load_5"] for r in rows]),  color=C[4], linewidth=1.2, label="5 Min")
+    ax.plot(ts, _none_to_nan([r["load_15"] for r in rows]), color=C[5], linewidth=1.2, label="15 Min")
     ax.legend(fontsize=7, labelcolor=TEXT, facecolor=PANEL)
 
     # 5 – Netzwerk-Traffic
     ax = styled_ax(fig.add_subplot(gs[2, 0]), "Netzwerk-Traffic (KB/s)")
-    ax.plot(ts, [r["net_recv_kb"] for r in rows], color=C[0], linewidth=1.2, label="Empfangen")
-    ax.plot(ts, [r["net_sent_kb"] for r in rows], color=C[1], linewidth=1.2, label="Gesendet")
+    ax.plot(ts, _none_to_nan([r["net_recv_kb"] for r in rows]), color=C[0], linewidth=1.2, label="Empfangen")
+    ax.plot(ts, _none_to_nan([r["net_sent_kb"] for r in rows]), color=C[1], linewidth=1.2, label="Gesendet")
     ax.legend(fontsize=7, labelcolor=TEXT, facecolor=PANEL)
     ax.set_ylabel("KB/s")
 
     # 6 – CPU-Frequenz
     ax = styled_ax(fig.add_subplot(gs[2, 1]), "CPU-Frequenz (MHz)")
-    ax.plot(ts, [r["cpu_freq_mhz"] for r in rows], color=C[2], linewidth=1.5)
-    ax.fill_between(ts, [r["cpu_freq_mhz"] for r in rows], alpha=0.15, color=C[2])
+    freq = _none_to_nan([r["cpu_freq_mhz"] for r in rows])
+    ax.plot(ts, freq, color=C[2], linewidth=1.5)
+    ax.fill_between(ts, freq, alpha=0.15, color=C[2])
     ax.set_ylabel("MHz")
 
     # 7 – Disk-Nutzung (Verlauf, unterer Bereich)
     ax = styled_ax(fig.add_subplot(gs[3, :]), "Disk-Nutzung (%)")
-    ax.plot(ts, [r["disk_pct"] for r in rows], color=C[5], linewidth=1.5)
-    ax.fill_between(ts, [r["disk_pct"] for r in rows], alpha=0.15, color=C[5])
+    disk_pct = _none_to_nan([r["disk_pct"] for r in rows])
+    ax.plot(ts, disk_pct, color=C[5], linewidth=1.5)
+    ax.fill_between(ts, disk_pct, alpha=0.15, color=C[5])
     ax.set_ylim(0, 100)
     ax.set_ylabel("%")
 
@@ -129,13 +138,13 @@ def build_charts(rows):
         color=TEXT, fontsize=14, y=0.98
     )
 
-    b64 = _to_base64_png(fig)
+    png_bytes = _fig_to_bytes(fig)
     plt.close(fig)
-    return b64
+    return png_bytes
 
 
 def build_html(rows, latest):
-    chart_b64 = build_charts(rows)
+    chart_png = build_charts(rows)
     n = len(rows)
     days = config.REPORT_LOOKBACK_DAYS
 
@@ -173,7 +182,7 @@ def build_html(rows, latest):
       </table>
 
       <h2 style="color:#00d4ff;margin-top:28px;">Dashboard (letzte {days} Tage)</h2>
-      <img src="data:image/png;base64,{chart_b64}"
+      <img src="cid:dashboard_chart"
            style="width:100%;border-radius:8px;border:1px solid #2a2a4a;" />
 
       <p style="color:#555;font-size:11px;margin-top:20px;">
@@ -182,7 +191,7 @@ def build_html(rows, latest):
     </div>
     </body></html>
     """
-    return html
+    return html, chart_png
 
 
 def send_report():
@@ -194,13 +203,23 @@ def send_report():
         return
 
     rows = _parse_ts(rows)
-    html = build_html(rows, latest or {})
+    html, chart_png = build_html(rows, latest or {})
 
-    msg = MIMEMultipart("alternative")
+    # multipart/related: HTML + eingebettetes Bild per Content-ID (cid:)
+    # Notwendig weil Gmail und andere Clients data:-URIs in HTML-Mails blockieren.
+    msg = MIMEMultipart("related")
     msg["Subject"] = f"Pi Monitor – Dashboard {datetime.now().strftime('%d.%m.%Y')}"
     msg["From"] = config.EMAIL_SENDER
     msg["To"] = config.EMAIL_RECIPIENT
-    msg.attach(MIMEText(html, "html"))
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(html, "html"))
+    msg.attach(alt)
+
+    img = MIMEImage(chart_png, _subtype="png")
+    img.add_header("Content-ID", "<dashboard_chart>")
+    img.add_header("Content-Disposition", "inline", filename="dashboard.png")
+    msg.attach(img)
 
     with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as smtp:
         smtp.starttls()
